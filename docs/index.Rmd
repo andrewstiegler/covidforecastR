@@ -11,6 +11,7 @@ output:
 
 ```{r setup, include=FALSE}
 library(flexdashboard)
+library(leaflet.extras)
 library(tidyverse)
 library(data.table)
 library(plotly)
@@ -18,6 +19,7 @@ library(withr)
 library(leaflet)
 library(geojsonio)
 library(RColorBrewer)
+
 
 # Load data
 us_plots <- readRDS("us_plots.rds")

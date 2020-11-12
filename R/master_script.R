@@ -11,6 +11,7 @@ library(RColorBrewer)
 library(viridis)
 library(albersusa)
 library(zoo)
+library(leaflet.extras)
 
 # Helper functions------
 
@@ -456,7 +457,7 @@ cases_per_100k_map <- basemap %>% addPolygons(
         textsize = "15px",
         direction = "auto")) %>% 
     addLegend(pal = pos_pal, values = ~inf_100k, opacity = 0.7, title = "Cases per 100k",
-              position = "bottomright", na.label = element_blank())
+              position = "bottomright", na.label = element_blank()) %>% suspendScroll(sleepOpacity = 0.9)
 
 r_bins <- c(Inf, 1.3, 1.2, 1.1, 1, 0.9, 0.8, 0.7,-Inf)
 r_pal <- colorBin(c("#e41a1c", "#377eb8", "#4daf4a"), domain = states_js$current_rt, bins = r_bins, reverse = TRUE)
@@ -488,7 +489,7 @@ current_r_map <- basemap %>% addPolygons(
                                 domain = states_js$current_rt, bins = r_bins, reverse = TRUE)(r_bins)[-1], values = ~current_rt, opacity = 0.7, title = "Estimated R",
               position = "bottomright",
               labels = c("> 1.3", "1.2 - 1.3", "1.1 - 1.2", "1.0 - 1.1",
-              "0.9 - 1.0", "0.8 - 0.9", "0.7 - 0.8", "< 0.7" ))
+              "0.9 - 1.0", "0.8 - 0.9", "0.7 - 0.8", "< 0.7" )) %>% suspendScroll(sleepOpacity = 0.9)
 
 forecast_labels <- sprintf(
     "<strong>%s</strong><br/>%g Forecast cases per 100k",
@@ -515,7 +516,7 @@ forecast_map <- basemap %>% addPolygons(
         textsize = "15px",
         direction = "auto")) %>% 
     addLegend(pal = pos_pal, values = ~forecast_100k, opacity = 0.7, title = "Cases per 100k",
-              position = "bottomright")
+              position = "bottomright") %>% suspendScroll(sleepOpacity = 0.9)
 
 
 good_map_list <- list(cases_per_100k_map, current_r_map, forecast_map)
