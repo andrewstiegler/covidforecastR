@@ -1,0 +1,3 @@
+"0","barplots[[2]] %>% ggplotly(tooltip = c(""region"", ""text""), height = 700)"
+"2","Error in eval(lhs, parent, parent) : object 'barplots' not found
+"
