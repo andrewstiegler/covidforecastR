@@ -90,7 +90,7 @@ goodmaps[[2]]
 goodmaps[[1]]
 ```
 
-### Forecast positive cases
+### Forecast positive cases (+2 weeks)
 ```{r out.width = "100%", out.height="100%"}
 goodmaps[[3]]
 ```
@@ -99,7 +99,7 @@ Row
 -----------------------------------------------------------------------
 ### Current R  
 
-```{r fig.height = 8}
+```{r fig.height = 7.5}
 
 r_bar_label <- function(data){
     data <- round(data, 2)
@@ -124,14 +124,14 @@ barplots[[1]] %>% ggplotly(tooltip = c("region", "text"), height = 700) %>% layo
 
 ### Current infections per 100k  
 
-```{r}
+```{r fig.height = 7.5}
 barplots[[2]] %>% ggplotly(tooltip = c("region", "text"), height = 700) %>% layout(xaxis = list(side = "top"))
 
 ```
 
-### Forecast change  
+### Forecast infections per 100k (+2 weeks)  
 
-```{r}
+```{r fig.height = 7.5}
 barplots[[3]] %>% ggplotly(tooltip = c("region", "text"), height = 700) %>% layout(xaxis = list(side = "top"))
 
 ```
