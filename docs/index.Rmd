@@ -1,0 +1,137 @@
+---
+title: '`r format(Sys.Date(), "%B %d, %Y")` - COVID foRecastR'
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: scroll
+    theme: journal
+    includes:
+      after_body: footer.html
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(tidyverse)
+library(data.table)
+library(plotly)
+library(withr)
+library(leaflet)
+library(geojsonio)
+library(RColorBrewer)
+
+# Load data
+us_plots <- readRDS("us_plots.rds")
+goodmaps <- readRDS("goodmaps.rds")
+barplots <- readRDS("bar_list.rds")
+
+# Label functions
+pos_text <- function(data){
+    text <- paste("Novel positive cases", data, sep = ": ")
+    return(text)
+}
+
+avg_7_text <- function(data){
+    text <- paste("7-day average", data, sep = ": ")
+    return(text)
+}
+
+forecast_text <- function(data){
+    text <- paste("Forecast", data, sep = ": ")
+    return(text)
+}
+
+est_r_label <- function(data){
+    data <- round(data, 2)
+    label <- paste("Estimated R: ", data, sep = "")
+    return(label)
+}
+
+forecast_r_label <- function(data){
+    data <- round(data, 2)
+    label <- paste("Forecast R: ", data, sep = "")
+    return(label)
+}
+
+
+forecast_inf_label <- function(data){
+    data <- floor(data)
+    label <- paste("Forecast infections per 100k: ", data, sep = "")
+    return(label)
+}
+```
+
+### Forecasting the COVID19 pandemic in the United States
+This dashboard uses confirmed cases and statistical modeling to forecast the next 2 weeks of COVID19.
+
+
+Row {data-width=1000}
+------------------------------------------------------------------
+
+### US - new positive cases +  2 week forecast
+
+```{r, out.width = 4, out.height = 4}
+subplot(titleY = TRUE, with_options(list(digits = 1, scipen = 10), ggplotly(us_plots[[1]], tooltip = c("date", "text")))) %>% style(hoverinfo = "skip", traces = c(3,4,5))
+```
+
+### US - estimated reproduction number + 2 week forecast
+```{r, out.width = 4, out.height = 4}
+ subplot(with_options(list(digits = 3), ggplotly(us_plots[[2]], tooltip = c("date", "text"))), titleY = TRUE) %>% style(hoverinfo = "skip", traces = c(0,1,2,3,4,5,6))
+```
+
+Row {.tabset}
+-----------------------------------------------------------------------
+### Estimated R
+```{r, out.width = "100%", out.height = "100%"}
+goodmaps[[2]]
+```
+
+### Positive cases
+```{r out.width = "100%", out.height="100%"}
+goodmaps[[1]]
+```
+
+### Forecast positive cases
+```{r out.width = "100%", out.height="100%"}
+goodmaps[[3]]
+```
+
+Row
+-----------------------------------------------------------------------
+### Current R  
+
+```{r fig.height = 8}
+
+r_bar_label <- function(data){
+    data <- round(data, 2)
+    label <- paste("Current R: ", data, sep = "")
+    return(label)
+}
+
+current_inf_label <- function(data){
+    data <- floor(data)
+    label <- paste("Current infections per 100k: ", data, sep = "")
+    return(label)
+}
+
+forecast_inf_label <- function(data){
+    data <- floor(data)
+    label <- paste("Forecast % change: ", data, sep = "")
+    return(label)
+}
+barplots[[1]] %>% ggplotly(tooltip = c("region", "text"), height = 700) %>% layout(xaxis = list(side = "top"))
+
+```
+
+### Current infections per 100k  
+
+```{r}
+barplots[[2]] %>% ggplotly(tooltip = c("region", "text"), height = 700) %>% layout(xaxis = list(side = "top"))
+
+```
+
+### Forecast change  
+
+```{r}
+barplots[[3]] %>% ggplotly(tooltip = c("region", "text"), height = 700) %>% layout(xaxis = list(side = "top"))
+
+```
