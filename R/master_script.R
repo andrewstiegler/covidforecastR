@@ -590,7 +590,7 @@ forecast_inf_bar <- ggplot(all_states_for_bar)+
                         xmin = inf_lower_50 / population * 100000,
                         xmax = inf_upper_50 / population * 100000,
                         y = region, text = forecast_inf_label((current_inf / population) * 100000 * (1 + forecast_increase / 100)),
-                        color = current_inf / population * 100000 * forecast_increase,
+                        color = (current_inf / population) * 100000 * (1 + forecast_increase / 100),
     ), size = 0.1, fatten = 10, show.legend = FALSE)+
     # annotate("segment", x = 1, xend = 1, y = 0, yend = 60, linetype = "dashed")+
     scale_color_viridis("Cases per 100k", "inferno")+
