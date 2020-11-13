@@ -554,18 +554,16 @@ forecast_inf_label <- function(data){
 }
 
 current_r_bar <- ggplot(all_states_for_bar)+
-    geom_crossbar(aes(x = current_rt, xmin = rt_lower_50, xmax = rt_upper_50, 
-                        y = region, color = current_rt, text = r_bar_label(current_rt)), 
-                    size = 0.1, show.legend = FALSE, fatten = 10)+
-#    geom_point(aes(x = current_rt, 
- #                  y = region, color = current_rt, text = r_bar_label(current_rt)), 
-             #  size = 2.5, show.legend = FALSE)+
-    annotate("segment", x = 1, xend = 1, y = 0, yend = 50, linetype = "dashed")+
+    geom_pointrange(aes(y = current_rt, ymin = rt_lower_50, ymax = rt_upper_50, 
+                        x = region, color = current_rt, text = r_bar_label(current_rt)), 
+                    size = 1, show.legend = FALSE, fatten = 3)+
+    annotate("segment", y = 1, yend = 1, x = 0, xend = 50, linetype = "dashed")+
     scale_color_gradient2("Rt", low = "#4daf4a", high = "#e41a1c", mid = "#377eb8",
                          midpoint = 1)+
     theme_bw(base_size = 12)+
-    ylab("")+
-    scale_x_continuous("", position = "top")
+    xlab("")+
+    scale_y_continuous("", position = "right")+
+    coord_flip()
 
 all_states_for_bar$region <- factor(all_states_for_bar$region) %>% fct_reorder(all_states_for_bar$current_inf / all_states_for_bar$population)
 
@@ -586,17 +584,18 @@ all_states_for_bar$forecast_per_100k <- (all_states_for_bar$current_inf / all_st
 all_states_for_bar$region <- factor(all_states_for_bar$region) %>% fct_reorder(all_states_for_bar$forecast_per_100k)
 
 forecast_inf_bar <- ggplot(all_states_for_bar)+
-    geom_crossbar(aes(x = (current_inf / population) * 100000 * (1 + forecast_increase / 100),
-                        xmin = inf_lower_50 / population * 100000,
-                        xmax = inf_upper_50 / population * 100000,
-                        y = region, text = forecast_inf_label((current_inf / population) * 100000 * (1 + forecast_increase / 100)),
+    geom_pointrange(aes(y = (current_inf / population) * 100000 * (1 + forecast_increase / 100),
+                        ymin = inf_lower_50 / population * 100000,
+                        ymax = inf_upper_50 / population * 100000,
+                        x = region, text = forecast_inf_label((current_inf / population) * 100000 * (1 + forecast_increase / 100)),
                         color = (current_inf / population) * 100000 * (1 + forecast_increase / 100),
-    ), size = 0.1, fatten = 10, show.legend = FALSE)+
+    ), size = 1, fatten = 3, show.legend = FALSE)+
     # annotate("segment", x = 1, xend = 1, y = 0, yend = 60, linetype = "dashed")+
     scale_color_viridis("Cases per 100k", "inferno")+
     theme_bw(base_size = 12)+
-    ylab("")+
-    scale_x_continuous("", position = "top")
+    xlab("")+
+    scale_y_continuous("", position = "right")+
+    coord_flip()
 
 
 forecast_bar <- ggplot(all_states_for_bar)+
