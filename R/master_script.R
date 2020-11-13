@@ -321,7 +321,7 @@ avg_7_text <- function(data){
 }
 
 forecast_text <- function(data){
-    text <- paste("Forecast", data, sep = ": ")
+    text <- paste("Forecast", floor(data), sep = ": ")
     return(text)
 }
 
