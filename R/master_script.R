@@ -424,7 +424,7 @@ states_js$forecast_inf <- state_delta_tibble$forecast_increase
 states_js$inf_100k <- state_delta_tibble$current_inf / (states_js$pop_2014 / 100000)
 states_js$forecast_100k <- states_js$inf_100k * (1 + states_js$forecast_inf / 100)
 
-basemap <- leaflet(states_js) %>%
+basemap <- leaflet(states_js, options = leafletOptions(minZoom = 4, maxZoom = 7)) %>%
     setView(-96, 37.8, 4) %>%
     addProviderTiles("MapBox", options = providerTileOptions(
         id = "mapbox.light",
