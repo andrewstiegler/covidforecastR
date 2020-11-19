@@ -6,12 +6,15 @@ library(tidyverse) # dplyr data manipulation, ggplot
 library(data.table) # for rbindlist
 library(tsibble) 
 library(ggsci) # NEJM color palett
-library(leaflet)
+library(leaflet) # maps
 library(RColorBrewer)
 library(viridis)
-library(albersusa)
-library(zoo)
+library(albersusa) # for projected HI and AK on maps
+library(zoo) # for rollmeans
 library(leaflet.extras)
+library(fable) #time series forecasting
+library(feasts)
+library(plotly)
 
 # Helper functions------
 
@@ -211,10 +214,11 @@ state_daily_7day <- map(state_daily_infected,
 for (i in 1:length(state_list)) {
     state_daily_infected[[i]] <- filter(state_daily_infected[[i]], 
                                         date > as.Date("2020-03-24"))
-    state_daily_infected[[i]]$avg_7_day <- state_daily_7day[[i]]
+    state_daily_infected[[i]]$avg_7_day <- floor(state_daily_7day[[i]])
     i <- i + 1
 }
 
+# Set up epinow stuff--------
 colnames(state_daily_infected_tibble)[3] <- "confirm"
 us_daily_infected <- us_data %>% select(date, positive_increase) %>% 
     filter(date > (Sys.Date() - 60))
@@ -272,6 +276,24 @@ for(i in 26:length(state_list)) {
     i <- i + 1
 }
 
+state_fails <- which(lapply(state_estimates_epinow, is.list) %>% unlist() == FALSE)
+
+# repeat over failed instances
+if(state_fails != 0){
+    for(i in 1:length(state_fails)){
+        state_estimate <- try(epinow(reported_cases = state_epinow[[state_fails[[i]]]], 
+                                     generation_time = generation_time,
+                                     delays = list(incubation_period, reporting_delay),
+                                     horizon = 14,
+                                     samples = 700,
+                                     max_execution_time = 1800))
+        
+        state_estimates_epinow[[state_fails[[i]]]] <- state_estimate
+        i <- i + 1
+    }
+}
+
+# Extract stuff from epinow forecasts ------
 for(i in 1:length(state_list)){
     
     state_infections <- state_daily_infected[[i]]
@@ -308,7 +330,7 @@ names(state_estimates_epinow) <- names(state_estimates_data) <- names(state_esti
 # separate forecats from epinow output
 us_forecast <- us_estimates$estimates$summarised %>% tibble() %>% 
     filter(date > Sys.Date() & variable == "reported_cases") 
-
+# Create plots -----
 # Label functions for plotly
 pos_text <- function(data){
     text <- paste("Novel positive cases", data, sep = ": ")
@@ -411,12 +433,13 @@ all_states_delta <- purrr::map(state_list, state_delta) %>% rbindlist()
 all_states_delta$name <- c((state.name %>% tolower())[1:8], 
                            "district of columbia", 
                            (state.name %>% tolower())[9:50])
-
+# Create map plots -------
 
 states_js <- usa_sf()
 
 state_delta_tibble <- left_join(tibble(name = states_js$name %>% tolower()), 
                                 all_states_delta, by = "name")
+saveRDS(state_delta_tibble, "docs/state_delta_tibble.rds")
 
 states_js$current_inf <- state_delta_tibble$current_inf
 states_js$current_rt <- state_delta_tibble$current_rt
@@ -430,7 +453,7 @@ basemap <- leaflet(states_js, options = leafletOptions(minZoom = 4, maxZoom = 7)
         id = "mapbox.light",
         accessToken = Sys.getenv('MAPBOX_ACCESS_TOKEN')))
 
-pos_bins <- c(0, 5, 10, 20, 50, 100, 150, Inf)
+pos_bins <- c(0, 10, 25, 50, 100, 150, 200, Inf)
 pos_pal <- colorBin("inferno", domain = states_js$inf_100k, bins = pos_bins)
 
 pos_labels <- sprintf(
@@ -521,6 +544,8 @@ forecast_map <- basemap %>% addPolygons(
 
 good_map_list <- list(cases_per_100k_map, current_r_map, forecast_map)
 
+
+# Bar plots ------
 us_estimates <- return_list[[1]]
 state_estimates_plot <- return_list[[8]]
 us_infection_pot <- return_list[[6]]
@@ -610,11 +635,244 @@ forecast_bar <- ggplot(all_states_for_bar)+
 
 bar_list <- list(current_r_bar, current_inf_bar, forecast_inf_bar)
 
-
+# Save RDS files -----
 saveRDS(good_map_list, "docs/goodmaps.rds")
+bar_list[[1]] <- bar_list[[1]] %>% ggplotly(tooltip = c("region", "text"), height = 700) %>% layout(xaxis = list(side = "top"))
+bar_list[[2]] <- bar_list[[2]] %>% ggplotly(tooltip = c("region", "text"), height = 700) %>% layout(xaxis = list(side = "top"))
+bar_list[[3]] <- bar_list[[3]] %>% ggplotly(tooltip = c("region", "text"), height = 700) %>% layout(xaxis = list(side = "top"))
+
 saveRDS(bar_list, "docs/bar_list.rds")
 saveRDS(us_estimates, "docs/us_estimates.rds")
-saveRDS(state_estimates_data, "docs/state_data.rds")
-saveRDS(state_estimates_plot,"docs/state_plots.rds")
-saveRDS(list(us_infection_plot, us_rt_plot), "docs/us_plots.rds")
+us_plot_1 <- subplot(titleY = TRUE, with_options(list(digits = 1, scipen = 10), 
+                                                 ggplotly(us_infection_plot, tooltip = c("date", "text")))) %>% 
+    style(hoverinfo = "skip", traces = c(3,4,5))
+us_plot_2 <- subplot(with_options(list(digits = 3), ggplotly(us_rt_plot, tooltip = c("date", "text"))), titleY = TRUE) %>% style(hoverinfo = "skip", traces = c(0,1,2,3,4,5,6))
+saveRDS(list(us_plot_1, us_plot_2), "docs/us_plots.rds")
 
+# state-by-state plots for dashboard --------
+state_plots <- function(state_pct_pos, state_pct_pos_forecast,
+                        state_hosp, state_hosp_forecast,
+                        state_death, state_death_forecast,
+                        state_infections, state_forecast) {
+    
+    # Pct pos plot-------
+    pct_pos_label <- function(x){
+        paste("Positive tests: ", 100 * round(x, 4), "%", sep = "")
+    }
+    
+    avg_7_pos_label <- function(x){
+        paste("7-day average positive tests: ", 100 * round(x, 4), "%", sep = "")
+    }
+    
+    forecast_pct_label <- function(x){
+        paste("Forecast positive tests: ", 100 * round(x, 4), "%", sep = "")
+    }
+    
+    state_pct_plot <- ggplot()+
+        geom_col(data = state_pct_pos, aes(x = date, y = pct_pos, text = pct_pos_label(pct_pos)))+
+        geom_line(data = state_pct_pos, aes(x = date, y = pct_7, group = 1, text = avg_7_pos_label(pct_7)),
+                  color = plot_colors[2], size = 2)+
+        ylab("Percent positive tests")+
+        geom_ribbon(data = state_pct_pos_forecast, aes(x = date, ymin = `90%`$lower, ymax = `90%`$upper),
+                    fill = plot_colors[1], alpha = 0.1)+
+        geom_ribbon(data = state_pct_pos_forecast, aes(x = date, ymin = `50%`$lower, ymax = `50%`$upper),
+                    fill = plot_colors[1], alpha = 0.25)+
+        geom_ribbon(data = state_pct_pos_forecast, aes(x = date, ymin = `20%`$lower, ymax = `20%`$upper),
+                    fill = plot_colors[1], alpha = 0.45)+
+        geom_line(data = state_pct_pos_forecast, aes(x = date, y = .mean, group = 1, text = forecast_pct_label(.mean)),
+                  color = plot_colors[1], size = 1.1)+
+        scale_x_date("", limits = c(Sys.Date() - 60, Sys.Date() + 14))+
+        annotate("segment", x = Sys.Date(), xend = Sys.Date(), y = 0, yend = 1000000,
+                 linetype = "dashed")+
+        scale_y_continuous(labels = scales::percent)+
+        coord_cartesian(ylim = c(0, 1.05*max(state_pct_pos_forecast$`90%`$upper)))+
+        labs(caption = "source: The COVID Tracking Project (https://covidtracking.com) / forecast with R/EpiNow2")+
+        theme_bw()
+    
+    state_pct_plotly <- ggplotly(state_pct_plot, tooltip = c("date", "text")) %>% style(hoverinfo = "skip", traces = c(3,4,5))
+    
+    # Hosp plot-------
+    hosp_label <- function(x){
+        paste("Currently hospitalized: ", round(x, 0), sep = "")
+    }
+    
+    avg_7_hosp_label <- function(x){
+        paste("7-day average hospitalized: ", round(x, 0), sep = "")
+    }
+    
+    forecast_hosp_label <- function(x){
+        paste("Forecast hospitalizations: ", round(x, 0), sep = "")
+    }
+    
+    state_hosp_plot <- ggplot()+
+        geom_col(data = state_hosp, aes(x = date, y = hospitalized_currently, text = hosp_label(hospitalized_currently)))+
+        geom_line(data = state_hosp, aes(x = date, y = hosp_7, group = 1, text = avg_7_hosp_label(hosp_7)),
+                  color = plot_colors[2], size = 2)+
+        ylab("Currently hospitalized")+
+        geom_ribbon(data = state_hosp_forecast, aes(x = date, ymin = `90%`$lower, ymax = `90%`$upper),
+                    fill = plot_colors[1], alpha = 0.1)+
+        geom_ribbon(data = state_hosp_forecast, aes(x = date, ymin = `50%`$lower, ymax = `50%`$upper),
+                    fill = plot_colors[1], alpha = 0.25)+
+        geom_ribbon(data = state_hosp_forecast, aes(x = date, ymin = `20%`$lower, ymax = `20%`$upper),
+                    fill = plot_colors[1], alpha = 0.45)+
+        geom_line(data = state_hosp_forecast, aes(x = date, y = .mean, group = 1, text = forecast_hosp_label(.mean)),
+                  color = plot_colors[1], size = 1.1)+
+        scale_x_date("", limits = c(Sys.Date() - 60, Sys.Date() + 14))+
+        annotate("segment", x = Sys.Date(), xend = Sys.Date(), y = 0, yend = 1000000,
+                 linetype = "dashed")+
+        #scale_y_continuous(labels = scales::percent)+
+        coord_cartesian(ylim = c(0, 1.05*max(state_hosp_forecast$`90%`$upper)))+
+        labs(caption = "source: The COVID Tracking Project (https://covidtracking.com) / forecast with R/EpiNow2")+
+        theme_bw()
+    
+    state_hosp_plotly <- ggplotly(state_hosp_plot, tooltip = c("date", "text")) %>% style(hoverinfo = "skip", traces = c(3,4,5))
+    # Death plot ------
+    death_label <- function(x){
+        paste("New deaths: ", round(x, 0), sep = "")
+    }
+    
+    avg_7_death_label <- function(x){
+        paste("7-day average deaths: ", round(x, 0), sep = "")
+    }
+    
+    forecast_death_label <- function(x){
+        paste("Forecast deaths: ", round(x, 0), sep = "")
+    }
+    
+    state_death_plot <- ggplot()+
+        geom_col(data = state_death, aes(x = date, y = death_increase, text = death_label(death_increase)))+
+        geom_line(data = state_death, aes(x = date, y = death_7, group = 1, text = avg_7_death_label(death_7)),
+                  color = plot_colors[2], size = 2)+
+        ylab("New deaths")+
+        geom_ribbon(data = state_death_forecast, aes(x = date, ymin = `90%`$lower, ymax = `90%`$upper),
+                    fill = plot_colors[1], alpha = 0.1)+
+        geom_ribbon(data = state_death_forecast, aes(x = date, ymin = `50%`$lower, ymax = `50%`$upper),
+                    fill = plot_colors[1], alpha = 0.25)+
+        geom_ribbon(data = state_death_forecast, aes(x = date, ymin = `20%`$lower, ymax = `20%`$upper),
+                    fill = plot_colors[1], alpha = 0.45)+
+        geom_line(data = state_death_forecast, aes(x = date, y = .mean, group = 1, text = forecast_death_label(.mean)),
+                  color = plot_colors[1], size = 1.1)+
+        scale_x_date("", limits = c(Sys.Date() - 60, Sys.Date() + 14))+
+        annotate("segment", x = Sys.Date(), xend = Sys.Date(), y = 0, yend = 1000000,
+                 linetype = "dashed")+
+        #scale_y_continuous(labels = scales::percent)+
+        coord_cartesian(ylim = c(0, 1.05*max(state_death_forecast$`90%`$upper)))+
+        labs(caption = "source: The COVID Tracking Project (https://covidtracking.com) / forecast with R/EpiNow2")+
+        theme_bw()
+    
+    state_death_plotly <- ggplotly(state_death_plot, tooltip = c("date", "text")) %>% style(hoverinfo = "skip", traces = c(3,4,5))
+    
+    # Cases plot-----
+    cases_label <- function(x){
+        paste("New positive cases: ", round(x, 0), sep = "")
+    }
+    
+    avg_7_cases_label <- function(x){
+        paste("7-day average positive cases: ", round(x, 0), sep = "")
+    }
+    
+    forecast_cases_label <- function(x){
+        paste("Forecast positive cases: ", round(x, 0), sep = "")
+    }
+    
+    state_cases_plot <- ggplot()+
+        geom_col(data = state_infections, aes(x = date, y = positive_increase, text = cases_label(positive_increase)))+
+        geom_line(data = state_infections, aes(x = date, y = pos_7, group = 1, text = avg_7_cases_label(pos_7)),
+                  color = plot_colors[2], size = 2)+
+        ylab("New positive cases")+
+        geom_ribbon(data = state_forecast, aes(x = date, ymin = lower_90, ymax = upper_90),
+                    fill = plot_colors[1], alpha = 0.1)+
+        geom_ribbon(data = state_forecast, aes(x = date, ymin = lower_50, ymax = upper_50),
+                    fill = plot_colors[1], alpha = 0.25)+
+        geom_ribbon(data = state_forecast, aes(x = date, ymin = lower_20, ymax = upper_20),
+                    fill = plot_colors[1], alpha = 0.45)+
+        geom_line(data = state_forecast, aes(x = date, y = median, group = 1, text = forecast_cases_label(median)),
+                  color = plot_colors[1], size = 1.1)+
+        scale_x_date("", limits = c(Sys.Date() - 60, Sys.Date() + 14))+
+        annotate("segment", x = Sys.Date(), xend = Sys.Date(), y = 0, yend = 1000000,
+                 linetype = "dashed")+
+        #scale_y_continuous(labels = scales::percent)+
+        coord_cartesian(ylim = c(0, 1.05*max(state_forecast$upper_50)))+
+        labs(caption = "source: The COVID Tracking Project (https://covidtracking.com) / forecast with R/EpiNow2")+
+        theme_bw()
+    
+    state_cases_plotly <- ggplotly(state_cases_plot, tooltip = c("date", "text")) %>% style(hoverinfo = "skip", traces = c(3,4,5))
+    
+    plotly_list <- list(Cases = state_cases_plotly,
+                        Pct_pos = state_pct_plotly,
+                        Hospitalizations = state_hosp_plotly,
+                        Deaths = state_death_plotly)
+    return(plotly_list)
+}
+
+select_from_states <- function(data){
+    data <- data %>% dplyr::select(date, state, positive_increase, 
+                                   total_test_results_increase,
+                                   hospitalized_currently, 
+                                   death_increase)
+    data$pct_pos <- data$positive_increase / data$total_test_results_increase
+    data$pct_pos[which(data$pct_pos > 1)] <- 1
+    data$pct_pos[which(data$pct_pos < 0)] <- 0
+    data$pct_pos[which(is.na(data$pct_pos))] <- 0
+    return(data)
+}
+
+state_data_filtered <- lapply(state_data, select_from_states)
+
+state_data_filtered_tibble <- rbindlist(state_data_filtered) %>% tibble()
+state_data_filtered_pos_7 <- map(state_data_filtered, 
+                                 ~rollmean(.x$positive_increase, k = 7, align = "right", fill = 0))
+state_data_filtered_pct_7 <- map(state_data_filtered, 
+                                 ~rollmean(.x$pct_pos, k = 7, align = "right", fill = 0))
+state_data_filtered_hosp_7 <- map(state_data_filtered, 
+                                  ~rollmean(.x$hospitalized_currently, k = 7, align = "right", fill = 0))
+state_data_filtered_death_7 <- map(state_data_filtered, 
+                                   ~rollmean(.x$death_increase, k = 7, align = "right", fill = 0))
+
+for (i in 1:length(state_list)) {
+    state_data_filtered[[i]]$pos_7 <- round(state_data_filtered_pos_7[[i]], 0)
+    state_data_filtered[[i]]$pct_7 <- state_data_filtered_pct_7[[i]]
+    state_data_filtered[[i]]$hosp_7 <- round(state_data_filtered_hosp_7[[i]], 0)
+    state_data_filtered[[i]]$death_7 <- round(state_data_filtered_death_7[[i]], 0)
+    state_data_filtered[[i]] <- filter(state_data_filtered[[i]], 
+                                       date > as.Date("2020-03-24"))
+    i <- i + 1
+}
+
+all_state_plots <- list()
+for(i in 1:length(state_list)){
+    
+    state_infections <- state_data_filtered[[i]] %>% select(positive_increase, pos_7)
+    state_pct_pos <- state_data_filtered[[i]] %>% select(pct_pos, pct_7)
+    state_hosp <- state_data_filtered[[i]] %>% select(hospitalized_currently, hosp_7)
+    state_death <- state_data_filtered[[i]] %>% select(death_increase, death_7)
+    
+    state_pct_pos_forecast <- state_pct_pos %>% filter(date > Sys.Date() - 60) %>% 
+        model(ets = ARIMA(log(pct_7))) %>% forecast(h = "2 weeks") %>% hilo(c(20,50,90))
+    state_hosp_forecast <- state_hosp %>% filter(date > Sys.Date() - 60) %>% 
+        model(ets = ARIMA(log(hosp_7))) %>% forecast(h = "2 weeks") %>% hilo(c(20,50,90))
+    state_death_forecast <- state_death %>% filter(date > Sys.Date() - 60) %>% 
+        model(ets = ARIMA(log(death_7))) %>% forecast(h = "2 weeks") %>% hilo(c(20,50,90))
+    
+    if(is.list(state_estimates_epinow[[i]])) {
+        state_forecast <- state_estimates_epinow[[i]] %>% state_forecast_extract()
+        state_rt <- state_estimates_epinow[[i]] %>% state_rt_extract()
+        state_rt_forecast <- state_estimates_epinow[[i]] %>% state_rt_forecast_extract()    
+    } else state_forecast <- state_rt <- state_rt_forecast <- "Modeling Failed"
+    
+    all_state_plots[[i]] <- state_plots(state_pct_pos, state_pct_pos_forecast,
+                                        state_hosp, state_hosp_forecast,
+                                        state_death, state_death_forecast,
+                                        state_infections, state_forecast)
+    
+    state_estimates_data[[i]] <- list(state_pct_pos, state_pct_pos_forecast,
+                                      state_hosp, state_hosp_forecast,
+                                      state_death, state_death_forecast,
+                                      state_infections, state_forecast)
+    
+    i <- i + 1
+}
+
+names(all_state_plots) <- state_list
+
+saveRDS(all_state_plots, "all_state_plots.rds")
